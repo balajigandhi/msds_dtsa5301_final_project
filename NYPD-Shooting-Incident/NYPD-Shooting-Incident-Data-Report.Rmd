@@ -1,5 +1,7 @@
 ---
 title: "NYPD Shooting Incident Data Report"
+author: "Balaji Gandhi"
+date: "2024-11-18"
 output: html_document
 ---
 
@@ -9,7 +11,9 @@ library(dplyr)
 library(lubridate)
 library(ggplot2)
 ```
-<br>
+
+### Report source
+https://github.com/balajigandhi/msds_dtsa5301_final_project/blob/main/NYPD-Shooting-Incident/NYPD-Shooting-Incident-Data-Report.Rmd
 
 ### About the dataset
 This dataset is a breakdown of every shooting incident that occurred in NYC going from 2006 to 2023. This data is manually extracted every quarter and reviewed by the Office of Management Analysis and Planning before being posted on the NYPD website. Each record represents a shooting incident in NYC and includes information about the event, the location and time of occurrence. In addition, information related to suspect and victim demographics is also included. (Refer: https://catalog.data.gov/dataset/nypd-shooting-incident-data-historic).
