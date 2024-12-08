@@ -1,0 +1,328 @@
+---
+title: "Covid 19 Data Report"
+author: "Balaji Gandhi"
+date: "2024-11-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## COVID-19 Dataset Analysis
+
+### Description of data
+```
+The COVID-19 Data Repository by the Center for Systems Science and Engineering (CSSE) at Johns Hopkins University (JHU) served as a global resource for tracking COVID-19 cases, deaths, and vaccinations. It ceased data collection on March 10, 2023, and users are now referred to the World Health Organization (WHO) and U.S. CDC for updated information.
+
+This repository powered the JHU CSSE COVID-19 Dashboard, supported by the ESRI Living Atlas Team and JHU Applied Physics Lab (APL). It provided real-time visualizations of global COVID-19 statistics.
+```
+
+### Import the required libraries for the analysis
+```{r libraries, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(stringr)
+library(ggplot2)
+library(caret)
+library(dplyr)
+```
+
+### Download data from GitHub (Cache the data to avoid multiple downloads)
+```{r cache=TRUE, message=FALSE, warning=FALSE}
+url_in <-
+  "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
+file_names <- c(
+  "time_series_covid19_confirmed_global.csv",
+  "time_series_covid19_deaths_global.csv",
+  "time_series_covid19_confirmed_US.csv",
+  "time_series_covid19_deaths_US.csv"
+)
+urls <- str_c(url_in, file_names)
+urls
+global_cases <- read_csv(urls[1])
+global_deaths <- read_csv(urls[2])
+us_cases <- read_csv(urls[3])
+us_deaths <- read_csv(urls[4])
+continent_lookup_url <- "https://raw.githubusercontent.com/dbouquin/IS_608/master/NanosatDB_munging/Countries-Continents.csv"
+continent_lookup <- read_csv(continent_lookup_url)
+population_lookup_url <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/UID_ISO_FIPS_LookUp_Table.csv"
+population_lookup <- read_csv(population_lookup_url) %>%
+  select(-c(iso2, iso3, code3, Admin2, Lat, Long_, Combined_Key))
+```
+
+## Check the data
+```{r, message=FALSE, warning=FALSE}
+head(global_cases)
+head(global_deaths)
+head(us_cases)
+head(us_deaths)
+head(continent_lookup)
+head(population_lookup)
+```
+
+## Global data
+### Clean the cases data
+##### We reshape the data from wide to long format using pivot_longer. This makes it easier to work with the data.
+```{r, message=FALSE, warning=FALSE}
+global_cases_cleaned <- global_cases %>%
+  select(-Lat, -Long) %>%
+  pivot_longer(cols = -c(`Province/State`, `Country/Region`), names_to = "Date", values_to = "Cases") %>%
+  mutate(Date = mdy(Date))
+head(global_cases_cleaned)
+```
+
+### Clean the deaths data
+##### We reshape the data from wide to long format using pivot_longer. This makes it easier to work with the data.
+```{r, message=FALSE, warning=FALSE}
+global_deaths_cleaned <- global_deaths %>%
+  select(-Lat, -Long) %>%
+  pivot_longer(cols = -c(`Province/State`, `Country/Region`), names_to = "Date", values_to = "Deaths") %>%
+  mutate(Date = mdy(Date))
+head(global_deaths_cleaned)
+```
+
+### Join cases data with deaths data
+```{r, message=FALSE, warning=FALSE}
+global <- global_cases_cleaned %>%
+  full_join(global_deaths_cleaned) %>%
+  rename(Country_Region = `Country/Region`, Province_State = `Province/State`)
+head(global)
+```
+
+### Validate the data
+```{r, message=FALSE, warning=FALSE}
+summary(global)
+# Filter out rows with no cases
+global <- global %>% filter(Cases > 0)
+summary(global)
+global %>% filter(Cases > 103000000)
+```
+
+### Add population data to global data
+```{r, message=FALSE, warning=FALSE}
+global <- global %>%
+  left_join(population_lookup, by = c('Province_State', 'Country_Region')) %>%
+  select(-c(UID, FIPS)) %>%
+  select(Province_State, Country_Region, Population, Date, Cases, Deaths)
+head(global)
+```
+
+## Data visualization
+### Global cases by country
+```{r, message=FALSE, warning=FALSE}
+global_cases_by_country <- global %>%
+  group_by(Country_Region, Date) %>%
+  summarize(Cases = sum(Cases), Deaths = sum(Deaths), Population = sum(Population)) %>%
+  select(Country_Region, Date, Cases, Deaths, Population) %>%
+  ungroup()
+head(global_cases_by_country)
+```
+
+### Visualization
+#### Global cases by country
+```{r, message=FALSE, warning=FALSE}
+global_cases_by_country %>%
+  filter(Cases > 0) %>%
+  ggplot(aes(x = Date, y = Cases)) +
+  geom_line(aes(color = "Cases")) +
+  geom_point(aes(color = "Cases")) +
+  geom_line(aes(y = Deaths, color = "Deaths")) +
+  geom_point(aes(y = Deaths, color = "Deaths")) +
+  scale_y_log10() +
+  theme(legend.position="bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "COVID19 in all countries", y = NULL)
+```
+
+##### Analysis
+```
+The above plot shows the number of COVID-19 cases and deaths over time for all countries. The graph has too many data points to be useful. We will filter the data to focus on the top 5 countries by cases and deaths. Additionally, we will group the data by continent to see the distribution of cases and deaths by continent.
+```
+
+#### Find top 5 countries by cases
+```{r, message=FALSE, warning=FALSE}
+top_countries_by_cases <- global_cases_by_country %>%
+  filter(Date == max(Date)) %>%
+  arrange(desc(Cases)) %>%
+  head(5)
+top_countries_by_cases
+```
+
+#### Filter by top countries by cases and plot
+```{r, message=FALSE, warning=FALSE}
+Country_Region_Filter <- top_countries_by_cases$Country_Region
+global_cases_by_country %>%
+  filter(Country_Region == Country_Region_Filter) %>%
+  filter(Cases > 0) %>%
+  ggplot(aes(x = Date, y = Cases)) +
+  geom_line(aes(color = Country_Region)) +
+  scale_y_log10() +
+  theme(legend.position="bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "COVID19 cases by top 5 countries", y = NULL)
+```
+
+##### Analysis
+```
+The above graph visualizes COVID-19 cases over time for the top 5 countries with the highest reported cases. All countries experienced a rapid rise in cases starting in early 2020, with some showing faster growth rates than others. By 2022–2023, the case curves for all countries begin to flatten, reflecting a stabilization or slower growth in new infections. The United States consistently reports the highest cumulative cases compared to the other countries throughout the pandemic.
+```
+
+#### Find top 5 countries by deaths
+```{r, message=FALSE, warning=FALSE}
+top_countries_by_deaths <- global_cases_by_country %>%
+  filter(Date == max(Date)) %>%
+  arrange(desc(Deaths)) %>%
+  head(5)
+```
+
+#### Filter by top countries by deaths and plot
+```{r, message=FALSE, warning=FALSE}
+Country_Region_Filter <- top_countries_by_deaths$Country_Region
+global_cases_by_country %>%
+  filter(Country_Region == Country_Region_Filter) %>%
+  filter(Cases > 0) %>%
+  ggplot(aes(x = Date, y = Deaths)) +
+  geom_line(aes(color = Country_Region)) +
+  scale_y_log10() +
+  theme(legend.position="bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "COVID19 deaths by top 5 countries", y = NULL)
+```
+
+##### Analysis
+```
+The above graph visualizes COVID-19 deaths over time for the top 5 countries with the highest fatalities. All countries experienced a steep rise in deaths starting in early 2020, with some showing faster increases than others. Around 2022–2023, the death curves for all countries begin to flatten, indicating a stabilization or slower growth in fatalities. The United States shows consistently higher cumulative deaths compared to others throughout the pandemic.
+```
+
+#### Attach continents to countries data
+```{r, message=FALSE, warning=FALSE}
+global_cases_by_country_and_continents <- global_cases_by_country %>%
+  left_join(continent_lookup, by = c("Country_Region" = "Country"))
+head(global_cases_by_country_and_continents)
+```
+
+#### Plot cases by continent
+```{r, message=FALSE, warning=FALSE}
+global_cases_by_country_and_continents %>%
+  filter(Cases > 0) %>%
+  group_by(Continent, Date) %>%
+  summarize(Cases = sum(Cases), Deaths = sum(Deaths), Population = sum(Population)) %>%
+  ggplot(aes(x = Date, y = Cases)) +
+  geom_line(aes(color = Continent)) +
+  scale_y_log10() +
+  theme(legend.position="bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "COVID19 cases by continent", y = NULL)
+```
+
+##### Analysis
+```
+The above graph illustrates the cumulative COVID-19 cases over time across different continents. All continents experienced rapid increases in cases beginning in early 2020, with some showing steeper growth rates than others. By 2022–2023, the case curves begin to flatten, indicating a stabilization or slower growth in reported cases. North America and Europe consistently report higher cumulative cases compared to other continents throughout the pandemic. In contrast, Oceania had significantly lower case counts overall.
+```
+
+#### Plot deaths by continent
+```{r, message=FALSE, warning=FALSE}
+global_cases_by_country_and_continents %>%
+  filter(Cases > 0) %>%
+  group_by(Continent, Date) %>%
+  summarize(Cases = sum(Cases), Deaths = sum(Deaths), Population = sum(Population)) %>%
+  ggplot(aes(x = Date, y = Deaths)) +
+  geom_line(aes(color = Continent)) +
+  scale_y_log10() +
+  theme(legend.position="bottom",
+
+            axis.text.x = element_text(angle = 90)) +
+  labs(title = "COVID19 deaths by continent", y = NULL)
+```
+
+##### Analysis
+```
+The above graph illustrates the cumulative COVID-19 deaths over time across different continents. All continents experienced steep increases in deaths starting in early 2020, with some showing faster growth rates than others. By 2022–2023, the death curves begin to flatten, indicating a stabilization or slower growth in fatalities. North America and Europe consistently report higher cumulative deaths compared to other continents throughout the pandemic. In contrast, Oceania had significantly lower death counts overall.
+```
+
+### Predictive modeling
+##### We will build a linear regression model to predict the number of deaths based on the number of cases
+```{r, message=FALSE, warning=FALSE}
+# Prepare the data
+data <- global_cases_by_country_and_continents %>%
+  filter(!is.na(Cases) & !is.na(Deaths)) %>%
+  select(Cases, Deaths)
+
+# Split the data into training and testing sets
+set.seed(123)
+trainIndex <- createDataPartition(data$Cases, p = .8, list = FALSE, times = 1)
+dataTrain <- data[trainIndex,]
+dataTest <- data[-trainIndex,]
+
+# Create a linear regression model
+model <- train(Deaths ~ Cases, data = dataTrain, method = "lm")
+
+# Make predictions on training and testing data
+trainPredictions <- predict(model, dataTrain)
+testPredictions <- predict(model, dataTest)
+```
+
+#### Plot actual vs predicted values for training data
+```{r, message=FALSE, warning=FALSE}
+trainResults <- data.frame(Cases = dataTrain$Cases, Actual_Deaths = dataTrain$Deaths, Predicted_Deaths = trainPredictions)
+ggplot(trainResults, aes(x = Cases, y = Actual_Deaths)) +
+  geom_point(color = "blue", size = 0.5, alpha = 0.5) +
+  geom_line(aes(y = Predicted_Deaths), color = "red") +
+  labs(title = "Training Data: Cases vs Deaths", x = "Cases", y = "Deaths")
+```
+
+#### Plot actual vs predicted values for testing data
+```{r, message=FALSE, warning=FALSE}
+testResults <- data.frame(Cases = dataTest$Cases, Actual_Deaths = dataTest$Deaths, Predicted_Deaths = testPredictions)
+ggplot(testResults, aes(x = Cases, y = Actual_Deaths)) +
+  geom_point(color = "blue", size = 0.5, alpha = 0.5) +
+  geom_line(aes(y = Predicted_Deaths), color = "red") +
+  labs(title = "Testing Data: Cases vs Deaths", x = "Cases", y = "Deaths")
+```
+
+##### Analysis
+```
+The above plots show the actual vs predicted values for deaths based on the number of cases using a linear regression model. The red line indicates a linear regression model attempting to capture the relationship between the number of cases and the number of deaths. The data points (blue) seem to follow a loosely linear pattern, especially at higher values, but there is notable scatter, particularly at lower case counts. The regression line seems reasonable for high values but less so for low values, where variability is high. This could mean the linear model does not capture all the complexities of the relationship. We will explore a polynomial regression model to see if it can better capture the non-linear relationship between cases and deaths.
+```
+
+#### We will build a polynomial regression model to predict the number of deaths based on the number of cases
+```{r, message=FALSE, warning=FALSE}
+model <- train(Deaths ~ poly(Cases, 7), data = dataTrain, method = "lm")
+
+# Make predictions on training and testing data
+trainPredictions <- predict(model, dataTrain)
+testPredictions <- predict(model, dataTest)
+```
+
+#### Plot actual vs predicted values for training data
+```{r, message=FALSE, warning=FALSE}
+trainResults <- data.frame(Cases = dataTrain$Cases, Actual_Deaths = dataTrain$Deaths, Predicted_Deaths = trainPredictions)
+ggplot(trainResults, aes(x = Cases, y = Actual_Deaths)) +
+  geom_point(color = "blue", size = 0.5, alpha = 0.5) +
+  stat_smooth(method = "lm", formula = y ~ poly(x, 7), color = "red") +
+  labs(title = "Training Data: Cases vs Deaths", x = "Cases", y = "Deaths")
+```
+
+#### Plot actual vs predicted values for testing data
+```{r, message=FALSE, warning=FALSE}
+testResults <- data.frame(Cases = dataTest$Cases, Actual_Deaths = dataTest$Deaths, Predicted_Deaths = testPredictions)
+ggplot(testResults, aes(x = Cases, y = Actual_Deaths)) +
+  geom_point(color = "blue", size = 0.5, alpha = 0.5) +
+  stat_smooth(method = "lm", formula = y ~ poly(x, 7), color = "red") +
+  labs(title = "Testing Data: Cases vs Deaths", x = "Cases", y = "Deaths")
+```
+
+##### Analysis
+```
+The above plots show the actual vs predicted values for deaths based on the number of cases using a polynomial regression model. The red line represents the predicted values, while the blue points represent the actual values. The polynomial regression model appears to capture the non-linear relationship between cases and deaths better than the linear regression model. The polynomial model provides a more flexible fit to the data, capturing the curvature in the relationship between cases and deaths. The curve adjusts dynamically to the data points, suggesting a better fit compared to the straight line in the linear model. After trying different polynomial degrees, we found that a 7th-degree polynomial provides a good balance between fit and complexity.
+```
+
+### Conclusion
+##### Summary of the analysis and findings
+```
+1. The analysis of COVID-19 data revealed the global spread of the virus, with different countries and continents experiencing varying levels of cases and deaths over time.
+2. The top 5 countries by cases and deaths were identified, showing the United States consistently reporting the highest numbers throughout the pandemic.
+3. The distribution of cases and deaths by continent highlighted the disparities in COVID-19 impact across different regions, with North America and Europe reporting higher counts compared to other continents.
+4. Predictive modeling using linear and polynomial regression models showed that a polynomial model with a 7th-degree polynomial provided a better fit to the data, capturing the non-linear relationship between cases and deaths.
+5. The polynomial regression model demonstrated the flexibility to adjust to the data points, providing a more accurate prediction of deaths based on the number of cases.
+```

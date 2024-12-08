@@ -1,0 +1,326 @@
+---
+title: "NYPD Shooting Incident Data Report"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+```
+<br>
+
+### About the dataset
+This dataset is a breakdown of every shooting incident that occurred in NYC going from 2006 to 2023. This data is manually extracted every quarter and reviewed by the Office of Management Analysis and Planning before being posted on the NYPD website. Each record represents a shooting incident in NYC and includes information about the event, the location and time of occurrence. In addition, information related to suspect and victim demographics is also included. (Refer: https://catalog.data.gov/dataset/nypd-shooting-incident-data-historic).
+<br>
+
+### Getting the data
+```{r cache=TRUE, warning=FALSE, message=FALSE}
+nypd_dataset_url <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+nypd_dataset <- read.csv(nypd_dataset_url)
+```
+Note: Use caching (cache=TRUE) to avoid downloading the dataset multiple times.
+
+### Summary of the dataset
+#### Original dataset columns
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+colnames(nypd_dataset)
+nypd_dataset_subset <- nypd_dataset %>%
+  select(c(
+    "OCCUR_DATE", "OCCUR_TIME", "BORO", "PRECINCT", "LOCATION_DESC",
+    "LOC_CLASSFCTN_DESC", "STATISTICAL_MURDER_FLAG", "VIC_AGE_GROUP",
+    "VIC_SEX", "VIC_RACE"
+  )) %>%
+  mutate(
+    OCCUR_DATE = as.Date(OCCUR_DATE, format = "%m/%d/%Y"),
+    OCCUR_TIME = as.POSIXct(OCCUR_TIME, format = "%H:%M:%S"),
+    STATISTICAL_MURDER_FLAG = as.logical(STATISTICAL_MURDER_FLAG),
+    Year = year(OCCUR_DATE)
+  )
+cat("Remove rows with unknown values to handle missing data\n")
+cat(
+  "Before filtering unknown values:",
+  "\nUnique values for VIC_AGE_GROUP:",
+  unique(nypd_dataset_subset$VIC_AGE_GROUP),
+  "\nUnique values for VIC_SEX:",
+  unique(nypd_dataset_subset$VIC_SEX)
+)
+nypd_dataset_subset <- nypd_dataset_subset %>%
+  filter(VIC_SEX != "U") %>%
+  filter(VIC_AGE_GROUP != "UNKNOWN" & VIC_AGE_GROUP != "1022")
+cat(
+  "After filtering unknown values:",
+  "\nUnique values for VIC_AGE_GROUP:",
+  unique(nypd_dataset_subset$VIC_AGE_GROUP),
+  "\nUnique values for VIC_SEX:",
+  unique(nypd_dataset_subset$VIC_SEX)
+)
+cat("Filtered dataset columns and data types\n")
+glimpse(nypd_dataset_subset)
+cat("Filtered dataset summary\n")
+summary(nypd_dataset_subset)
+```
+
+### Visualizing the Data
+#### Number of Incidents by Year
+```{r echo=TRUE, warning=FALSE, message=FALSE}
+incidents_per_year <- nypd_dataset_subset %>%
+  group_by(Year) %>%
+  summarize(Total_Incidents = n())
+
+ggplot(incidents_per_year, aes(x = Year, y = Total_Incidents)) +
+  geom_line(color = "lightgreen") +
+  geom_point(color = "red") +
+  scale_x_continuous(breaks = seq(2006, 2023, 2)) +
+  labs(
+    x = "Year",
+    y = "Total Incidents",
+    caption = "Figure 1"
+  ) +
+  theme_minimal()
+```
+<br>
+```
+Figure 1 displays the total number of shooting incidents in NYC from 2006 to 2023. The trend line reveals fluctuations in the number of incidents over the years, with certain periods experiencing higher or lower rates. Notably, the number of incidents was lower from 2013 to 2019.
+
+Additional question for exploration: What factors contributed to the decrease in incidents during this period?
+```
+<br>
+
+#### Number of Incidents by Year and STATISTICAL_MURDER_FLAG
+
+```{r echo=TRUE, warning=FALSE, message=FALSE}
+incidents_per_year <- nypd_dataset_subset %>%
+  group_by(Year, STATISTICAL_MURDER_FLAG) %>%
+  summarize(Total_Incidents = n())
+
+ggplot(incidents_per_year, aes(x = Year, y = Total_Incidents, color = STATISTICAL_MURDER_FLAG)) +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks = seq(2006, 2023, 4)) +
+  labs(
+    x = "Year",
+    y = "Total Incidents",
+    color = "Murder Flag",
+    caption = "Figure 2"
+  ) +
+  theme_minimal()
+```
+<br>
+```
+Figure 2 shows that the actual number of murders was lower, while other incidents followed the same pattern as the total number of incidents.
+```
+<br>
+
+#### Distribution of Incidents by Victim Age Group over the years (2006 - 2023)
+```{r echo=TRUE, warning=FALSE, message=FALSE}
+incidents_by_age_group <- nypd_dataset_subset %>%
+  group_by(Year, VIC_AGE_GROUP) %>%
+  summarize(Total_Incidents = n()) %>%
+  filter(VIC_AGE_GROUP %in% c("<18", "18-24", "25-44", "45-64", "65+"))
+
+ggplot(incidents_by_age_group, aes(x = Year, y = Total_Incidents, color = VIC_AGE_GROUP)) +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks = seq(2006, 2023, 4)) +
+  labs(
+    x = "Year",
+    y = "Number of Shootings",
+    caption = "Figure 3"
+  ) +
+  theme_minimal()
+```
+<br>
+```
+Figure 3 shows the distribution of incidents by victim age group. Victims between the ages of 18 and 44 appear to be involved in more incidents compared to other age groups.
+
+Additional questions to explore: What factors contribute to the higher incidence of shootings among younger age groups? Are there specific areas or times of day when these incidents are more likely to occur?
+```
+<br>
+
+#### Distribution of Incidents by Victim Sex over the years (2006 - 2023)
+```{r echo=TRUE, warning=FALSE, message=FALSE}
+incidents_by_sex <- nypd_dataset_subset %>%
+  group_by(Year, VIC_SEX) %>%
+  summarize(Total_Incidents = n()) %>%
+  filter(VIC_SEX %in% c("M", "F"))
+
+ggplot(incidents_by_sex, aes(x = Year, y = Total_Incidents, color = VIC_SEX)) +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks = seq(2006, 2023, 4)) +
+  labs(
+    x = "Year",
+    y = "Number of Shootings",
+    caption = "Figure 4"
+  ) +
+  theme_minimal()
+```
+<br>
+```
+Figure 4 shows the distribution of incidents by victim sex. There appears to be a higher number of incidents involving men.
+
+Additional questions to explore: What factors contribute to the higher incidence of shootings involving male victims? Are there specific areas or times of day when these incidents are more likely to occur?
+```
+<br>
+
+#### Distribution of Incidents by Time of Day
+```{r echo=TRUE, warning=FALSE, message=FALSE}
+incidents_by_time_of_day <- nypd_dataset_subset %>%
+  mutate(Time_of_Day = hour(OCCUR_TIME)) %>%
+  group_by(Time_of_Day) %>%
+  summarize(Total_Incidents = n())
+
+ggplot(incidents_by_time_of_day, aes(x = Time_of_Day, y = Total_Incidents)) +
+  geom_line(color = "lightgreen") +
+  geom_point(color = "red") +
+  scale_x_continuous(breaks = seq(0, 24, 2)) +
+  labs(
+    x = "Time of Day",
+    y = "Number of Shootings",
+    caption = "Figure 5"
+  ) +
+  theme_minimal()
+```
+<br>
+```
+Figure 5 shows the distribution of incidents by time of day. The number of incidents appears to be higher during the late evening and early morning hours.
+```
+<br>
+
+#### Distribution of Incidents by Borough
+```{r echo=TRUE, warning=FALSE, message=FALSE}
+incidents_by_borough <- nypd_dataset_subset %>%
+  group_by(BORO) %>%
+  summarize(Total_Incidents = n()) %>%
+  mutate(Percentage = Total_Incidents / sum(Total_Incidents) * 100)
+
+ggplot(incidents_by_borough, aes(x = "", y = Total_Incidents, fill = BORO)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar(theta = "y") +
+  geom_text(aes(label = paste0(round(Percentage, 1), "%")),
+            position = position_stack(vjust = 0.5)
+  ) +
+  labs(
+    fill = "Borough",
+    caption = "Figure 6"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    panel.grid = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks = element_blank()
+  )
+```
+<br>
+```
+Figure 6 shows the distribution of incidents by borough. Brooklyn and the Bronx appear to have a higher number of incidents compared to other boroughs.
+```
+<br>
+
+#### Linear Regression Model (time of day vs. number of incidents)
+```{r echo=TRUE, warning=FALSE, message=FALSE}
+incidents_by_time_of_day <- nypd_dataset_subset %>%
+  mutate(Time_of_Day = hour(OCCUR_TIME)) %>%
+  group_by(Time_of_Day) %>%
+  summarize(Total_Incidents = n())
+
+model <- lm(Total_Incidents ~ Time_of_Day, data = incidents_by_time_of_day)
+
+ggplot(incidents_by_time_of_day, aes(x = Time_of_Day, y = Total_Incidents)) +
+  geom_point(color = "red") +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  labs(
+    x = "Time of Day",
+    y = "Number of Shootings",
+    caption = "Figure 7"
+  ) +
+  theme_minimal()
+```
+<br>
+```
+Figure 7 shows a linear regression model of the number of incidents by time of day. Linear regression is a simple model that assumes a linear relationship between the independent and dependent variables. This model may not capture the full complexity of the data, as the relationship between time of day and the number of incidents may not be strictly linear.
+```
+<br>
+
+#### Polynomial Regression Model
+##### Data: (time of day vs. number of incidents)
+##### Degree: 2
+##### Under fitting
+```{r echo=TRUE, warning=FALSE, message=FALSE}
+model <- lm(Total_Incidents ~ poly(Time_of_Day, 2), data = incidents_by_time_of_day)
+
+ggplot(incidents_by_time_of_day, aes(x = Time_of_Day, y = Total_Incidents)) +
+        geom_point(color = "red") +
+        geom_smooth(method = "lm", se = FALSE, color = "blue", formula = y ~ poly(x, 2)) +
+        labs(
+                x = "Time of Day",
+                y = "Number of Shootings",
+                caption = "Figure 8"
+        ) +
+        theme_minimal()
+```
+<br>
+```
+Figure 8 shows a polynomial regression model of the number of incidents by time of day with a degree of 2. This model captures more complexity than the linear regression model, but it may still be underfitting the data. A higher degree polynomial may be needed to better capture the relationship between time of day and the number of incidents.
+```
+<br>
+
+#### Polynomial Regression Model
+##### Data: (time of day vs. number of incidents)
+##### Degree: 10
+##### Over fitting
+```{r echo=TRUE, warning=FALSE, message=FALSE}
+model <- lm(Total_Incidents ~ poly(Time_of_Day, 10), data = incidents_by_time_of_day)
+
+ggplot(incidents_by_time_of_day, aes(x = Time_of_Day, y = Total_Incidents)) +
+        geom_point(color = "red") +
+        geom_smooth(method = "lm", se = FALSE, color = "blue", formula = y ~ poly(x, 10)) +
+        labs(
+                x = "Time of Day",
+                y = "Number of Shootings",
+                caption = "Figure 9"
+        ) +
+        theme_minimal()
+```
+<br>
+```
+Figure 9 shows a polynomial regression model of the number of incidents by time of day with a degree of 10. This model captures a high degree of complexity, but it may be overfitting the data. Overfitting occurs when the model fits the noise in the data rather than the underlying pattern, leading to poor generalization to new data.
+```
+<br>
+
+#### Polynomial Regression Model (time of day vs. number of incidents)
+##### Data: (time of day vs. number of incidents)
+##### Degree: 4
+##### Best fit
+```{r echo=TRUE, warning=FALSE, message=FALSE}
+model <- lm(Total_Incidents ~ poly(Time_of_Day, 4), data = incidents_by_time_of_day)
+
+ggplot(incidents_by_time_of_day, aes(x = Time_of_Day, y = Total_Incidents)) +
+        geom_point(color = "red") +
+        geom_smooth(method = "lm", se = FALSE, color = "blue", formula = y ~ poly(x, 4)) +
+        labs(
+                x = "Time of Day",
+                y = "Number of Shootings",
+                caption = "Figure 10"
+        ) +
+        theme_minimal()
+```
+<br>
+```
+Figure 10 shows a polynomial regression model of the number of incidents by time of day with a degree of 4. This model captures a moderate level of complexity and provides a good fit to the data. A degree of 4 strikes a balance between capturing the underlying pattern and avoiding overfitting.
+```
+<br>
+
+#### Conclusion
+```
+The analysis of NYPD shooting incident data from 2006 to 2023 provides valuable insights into the trends and patterns of shootings in NYC. The data reveals fluctuations in the number of incidents over the years, with certain periods experiencing notably higher or lower counts.
+
+While perpetrator demographics could introduce bias, this was mitigated by focusing on victim demographics. The analysis could be further enriched by incorporating additional data sources, such as crime rates, socioeconomic factors, and law enforcement policies, to provide a more comprehensive understanding of the factors contributing to shooting incidents in NYC.
+
+The regression models explored in this report provide a glimpse into the relationship between time of day and the number of incidents. This could be used to predict the likelihood of incidents at different times, helping law enforcement agencies allocate resources more effectively.
+```
+<br>
